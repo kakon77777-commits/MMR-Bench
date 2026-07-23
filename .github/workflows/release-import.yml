@@ -1,0 +1,56 @@
+name: Import MMR-Bench v1.0 release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/release-import.yml"
+      - ".release/**"
+
+permissions:
+  contents: write
+
+jobs:
+  import-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out bootstrap repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Reconstruct and verify release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .release/part-*.b64 | base64 --decode > /tmp/mmr-release.tar.xz
+          echo "ae262c59818626493d60026fd1600c5382392dc9b28b0a64a92b76c48579b982  /tmp/mmr-release.tar.xz" | sha256sum --check --strict
+          mkdir -p /tmp/mmr-release
+          tar -xJf /tmp/mmr-release.tar.xz -C /tmp/mmr-release
+          test -f /tmp/mmr-release/README.md
+          test -f /tmp/mmr-release/mmr_bench/certificate_v10.py
+          test -f /tmp/mmr-release/tests/test_v10.py
+          test -f /tmp/mmr-release/.github/workflows/tests.yml
+          test "$(find /tmp/mmr-release -type f | wc -l)" -eq 51
+
+      - name: Test extracted release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -r /tmp/mmr-release/requirements.txt
+          cd /tmp/mmr-release
+          python -m pytest -q
+
+      - name: Replace bootstrap with formal release
+        shell: bash
+        run: |
+          set -euo pipefail
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -a /tmp/mmr-release/. .
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Import MMR-Bench v1.0 formal release"
+          git push origin HEAD:main
